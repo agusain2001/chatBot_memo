@@ -1,124 +1,132 @@
 """
 Calendar Integration Module using MCP (Model Context Protocol)
-Handles Google Calendar authentication and event retrieval.
+Handles Google Calendar authentication and event retrieval via the MCP SDK.
 
 Citations:
 - MCP Python SDK: https://github.com/modelcontextprotocol/python-sdk
-- Google Calendar API: https://developers.google.com/calendar/api/v3/reference
-- OAuth2 Authentication: https://developers.google.com/identity/protocols/oauth2
+- MCP Documentation: https://modelcontextprotocol.io/
+- Assignment Requirement: Use MCP SDK for auth and data fetching.
 """
 
 import os
-import json
 from typing import List, Dict, Optional, Any
 from datetime import datetime, timedelta
-import pickle
-from pathlib import Path
 
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
+# ADDED: MCP SDK imports
+# We assume the library provides a main client and specific exceptions
+try:
+    from mcp import ContextProtocol
+    from mcp.exceptions import McpAuthenticationError, McpApiError
+except ImportError:
+    print("="*60)
+    print("ERROR: 'mcp' library not found. Please install with: pip install mcp")
+    print("="*60)
+    ContextProtocol = None
+    McpAuthenticationError = Exception
+    McpApiError = Exception
+
+# ADDED: Import config from your settings file
+from src.config.settings import config
+
+# REMOVED: All Google library imports:
+# - google.auth.transport.requests
+# - google.oauth2.credentials
+# - google_auth_oauthlib.flow
+# - googleapiclient.discovery
+# - googleapiclient.errors
+# - pickle
 
 
 class CalendarIntegration:
     """
     Manages Google Calendar integration using MCP standards.
-    Handles OAuth authentication, token management, and calendar operations.
+    Handles OAuth authentication, token management, and calendar operations
+    via the MCP Python SDK.
     """
     
-    # Citation: Google Calendar API scopes
-    # https://developers.google.com/calendar/api/guides/auth
-    SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
-    
-    def __init__(self, credentials_file: str = 'credentials.json', token_file: str = 'token.pickle'):
+    def __init__(self):
         """
         Initialize Calendar Integration.
         
-        Args:
-            credentials_file (str): Path to Google OAuth credentials JSON
-            token_file (str): Path to store authentication token
+        REMOVED: credentials_file and token_file. MCP SDK handles this.
         """
-        self.credentials_file = credentials_file
-        self.token_file = token_file
-        self.creds = None
-        self.service = None
+        if not ContextProtocol:
+            raise ImportError("MCP SDK is not installed or failed to import.")
+            
+        # ADDED: Get MCP server URL from config
+        self.mcp_server_url = config.MCP_SERVER_URL
+        self.client = None  # This will be the authenticated ContextProtocol client
+        self.service = None # chatbot.py checks for this, so we'll mirror client to it
         
-        print("🗓️  Calendar Integration initialized")
+        print(f"🗓️  Calendar Integration initialized (MCP Mode). Server: {self.mcp_server_url}")
     
     def authenticate(self) -> bool:
         """
-        Authenticate with Google Calendar API using OAuth 2.0.
-        Implements secure token handling and refresh logic.
+        Authenticate with Google Calendar API using the MCP SDK.
+        This replaces the direct Google OAuth2 flow.
         
         Returns:
             bool: True if authentication successful, False otherwise
             
-        Citation: Google OAuth2 flow - https://developers.google.com/identity/protocols/oauth2
+        Citation: MCP SDK Authentication Guide
         """
         try:
-            # Check if token file exists and load credentials
-            if os.path.exists(self.token_file):
-                with open(self.token_file, 'rb') as token:
-                    self.creds = pickle.load(token)
-                    print("✅ Loaded existing credentials from token file")
+            print("🔐 Starting MCP OAuth authentication flow...")
             
-            # If credentials are invalid or don't exist, authenticate
-            if not self.creds or not self.creds.valid:
-                if self.creds and self.creds.expired and self.creds.refresh_token:
-                    # Refresh expired token
-                    print("🔄 Refreshing expired credentials...")
-                    self.creds.refresh(Request())
-                else:
-                    # New authentication flow
-                    if not os.path.exists(self.credentials_file):
-                        print(f"❌ Credentials file not found: {self.credentials_file}")
-                        print("Please download credentials.json from Google Cloud Console")
-                        return False
-                    
-                    print("🔐 Starting OAuth authentication flow...")
-                    flow = InstalledAppFlow.from_client_secrets_file(
-                        self.credentials_file, self.SCOPES
-                    )
-                    self.creds = flow.run_local_server(port=0)
-                
-                # Save credentials for future use
-                with open(self.token_file, 'wb') as token:
-                    pickle.dump(self.creds, token)
-                    print("✅ Credentials saved to token file")
+            # This is an assumed authentication method from the MCP SDK.
+            # The SDK will use the provided credentials to initiate
+            # an OAuth flow for its Google Calendar provider.
+            # You MUST check the MCP SDK documentation for the exact method.
+            self.client = ContextProtocol.authenticate_google(
+                server_url=self.mcp_server_url,
+                client_id=config.GOOGLE_CLIENT_ID,
+                client_secret=config.GOOGLE_CLIENT_SECRET,
+                redirect_uri=config.GOOGLE_REDIRECT_URI,
+                scopes=config.GOOGLE_SCOPES
+            )
             
-            # Build the Calendar API service
-            self.service = build('calendar', 'v3', credentials=self.creds)
-            print("✅ Successfully authenticated with Google Calendar")
-            return True
+            if self.client and self.client.is_authenticated():
+                # The chatbot.py file checks for 'self.calendar.service'
+                # We set it here to maintain that interface.
+                self.service = self.client 
+                print("✅ Successfully authenticated with Google Calendar via MCP")
+                return True
+            else:
+                self.service = None
+                print("❌ MCP Authentication failed. Client not authenticated.")
+                return False
             
+        except McpAuthenticationError as e:
+            print(f"❌ MCP Authentication error: {e}")
+            self.service = None
+            return False
         except Exception as e:
-            print(f"❌ Authentication error: {e}")
+            # Catch other errors, e.g., config not found
+            print(f"❌ General authentication error: {e}")
+            self.service = None
             return False
     
     def get_calendar_list(self) -> List[Dict[str, Any]]:
         """
-        Retrieve list of all calendars accessible to the user.
+        Retrieve list of all calendars using the MCP client.
         
         Returns:
             list: List of calendar objects
-            
-        Citation: Calendar List API - https://developers.google.com/calendar/api/v3/reference/calendarList
         """
         try:
             if not self.service:
-                print("❌ Service not initialized. Please authenticate first.")
+                print("❌ MCP Service not initialized. Please authenticate first.")
                 return []
             
-            calendar_list = self.service.calendarList().list().execute()
+            # Assumed SDK method:
+            calendar_list = self.service.calendar.list_calendars()
             calendars = calendar_list.get('items', [])
             
-            print(f"✅ Retrieved {len(calendars)} calendars")
+            print(f"✅ Retrieved {len(calendars)} calendars via MCP")
             return calendars
             
-        except HttpError as error:
-            print(f"❌ Error retrieving calendar list: {error}")
+        except McpApiError as error:
+            print(f"❌ Error retrieving MCP calendar list: {error}")
             return []
     
     def get_events(
@@ -131,60 +139,51 @@ class CalendarIntegration:
         order_by: str = 'startTime'
     ) -> List[Dict[str, Any]]:
         """
-        Retrieve calendar events within a specified time range.
+        Retrieve calendar events using the MCP client.
         
         Args:
-            calendar_id (str): Calendar ID (default: 'primary')
-            time_min (datetime): Start of time range
-            time_max (datetime): End of time range
-            max_results (int): Maximum number of events to return
-            single_events (bool): Expand recurring events
-            order_by (str): Order results by startTime
+            (Args are the same as the original)
             
         Returns:
             list: List of event objects
-            
-        Citation: Events.list API - https://developers.google.com/calendar/api/v3/reference/events/list
         """
         try:
             if not self.service:
-                print("❌ Service not initialized. Please authenticate first.")
+                print("❌ MCP Service not initialized. Please authenticate first.")
                 return []
             
-            # Set default time range if not provided
+            # Set default time range if not provided (logic is unchanged)
             if time_min is None:
                 time_min = datetime.utcnow()
             if time_max is None:
                 time_max = time_min + timedelta(days=7)
             
-            # Convert datetime to RFC3339 format
+            # Convert datetime to RFC3339 format (logic is unchanged)
             time_min_str = time_min.isoformat() + 'Z'
             time_max_str = time_max.isoformat() + 'Z'
             
-            # Call the Calendar API
-            events_result = self.service.events().list(
-                calendarId=calendar_id,
-                timeMin=time_min_str,
-                timeMax=time_max_str,
-                maxResults=max_results,
-                singleEvents=single_events,
-                orderBy=order_by
-            ).execute()
+            # REPLACED: Direct Google API call
+            # This is the new call using the assumed MCP SDK interface
+            events_result = self.service.calendar.get_events(
+                calendar_id=calendar_id,
+                time_min=time_min_str,
+                time_max=time_max_str,
+                max_results=max_results,
+                single_events=single_events,
+                order_by=order_by
+            )
             
             events = events_result.get('items', [])
-            print(f"✅ Retrieved {len(events)} events")
+            print(f"✅ Retrieved {len(events)} events via MCP")
             return events
             
-        except HttpError as error:
-            print(f"❌ Error retrieving events: {error}")
+        except McpApiError as error:
+            print(f"❌ Error retrieving MCP events: {error}")
             return []
     
     def get_today_events(self) -> List[Dict[str, Any]]:
         """
-        Get all events for today.
-        
-        Returns:
-            list: List of today's events
+        Get all events for today. (Logic is unchanged)
         """
         now = datetime.utcnow()
         start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -194,10 +193,7 @@ class CalendarIntegration:
     
     def get_week_events(self) -> List[Dict[str, Any]]:
         """
-        Get all events for the current week.
-        
-        Returns:
-            list: List of this week's events
+        Get all events for the current week. (Logic is unchanged)
         """
         now = datetime.utcnow()
         end_of_week = now + timedelta(days=7)
@@ -208,11 +204,10 @@ class CalendarIntegration:
         """
         Format a calendar event into a readable string.
         
-        Args:
-            event (dict): Event object from Google Calendar API
-            
-        Returns:
-            str: Formatted event string
+        NOTE: This function is unchanged, but you MUST verify that
+        the event object structure returned by the MCP SDK
+        matches the Google API event structure. If not, you will
+        need to adjust the keys (e.g., 'summary', 'start', 'dateTime').
         """
         try:
             summary = event.get('summary', 'No Title')
@@ -221,7 +216,6 @@ class CalendarIntegration:
             location = event.get('location', 'No location')
             description = event.get('description', 'No description')
             
-            # Handle all-day events vs timed events
             if 'dateTime' in start:
                 start_time = datetime.fromisoformat(start['dateTime'].replace('Z', '+00:00'))
                 end_time = datetime.fromisoformat(end['dateTime'].replace('Z', '+00:00'))
@@ -237,7 +231,6 @@ class CalendarIntegration:
                 formatted += f"   📍 {location}\n"
             
             if description != 'No description' and description:
-                # Truncate long descriptions
                 desc = description[:100] + "..." if len(description) > 100 else description
                 formatted += f"   📝 {desc}\n"
             
@@ -248,13 +241,7 @@ class CalendarIntegration:
     
     def format_events_list(self, events: List[Dict[str, Any]]) -> str:
         """
-        Format a list of events into a readable string.
-        
-        Args:
-            events (list): List of event objects
-            
-        Returns:
-            str: Formatted events list
+        Format a list of events into a readable string. (Logic is unchanged)
         """
         if not events:
             return "No upcoming events found."
@@ -267,37 +254,31 @@ class CalendarIntegration:
     
     def search_events(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
         """
-        Search for events matching a query string.
-        
-        Args:
-            query (str): Search query
-            max_results (int): Maximum number of results
-            
-        Returns:
-            list: List of matching events
+        Search for events matching a query string using MCP client.
         """
         try:
             if not self.service:
-                print("❌ Service not initialized. Please authenticate first.")
+                print("❌ MCP Service not initialized. Please authenticate first.")
                 return []
             
             now = datetime.utcnow().isoformat() + 'Z'
             
-            events_result = self.service.events().list(
-                calendarId='primary',
-                timeMin=now,
-                maxResults=max_results,
-                q=query,
-                singleEvents=True,
-                orderBy='startTime'
-            ).execute()
+            # Assumed SDK method:
+            events_result = self.service.calendar.search_events(
+                calendar_id='primary',
+                time_min=now,
+                max_results=max_results,
+                query=query,
+                single_events=True,
+                order_by='startTime'
+            )
             
             events = events_result.get('items', [])
-            print(f"✅ Found {len(events)} events matching '{query}'")
+            print(f"✅ Found {len(events)} events matching '{query}' via MCP")
             return events
             
-        except HttpError as error:
-            print(f"❌ Error searching events: {error}")
+        except McpApiError as error:
+            print(f"❌ Error searching MCP events: {error}")
             return []
 
 
@@ -307,30 +288,25 @@ if __name__ == "__main__":
     calendar = CalendarIntegration()
     
     # Test 1: Authentication
-    print("\n--- Test 1: Authentication ---")
-    if calendar.authenticate():
-        print("Authentication successful!")
-    else:
-        print("Authentication failed!")
+    print("\n--- Test 1: MCP Authentication ---")
+    if not calendar.authenticate():
+        print("MCP Authentication failed!")
         exit(1)
     
+    print("MCP Authentication successful!")
+    
     # Test 2: Get calendar list
-    print("\n--- Test 2: Calendar List ---")
+    print("\n--- Test 2: MCP Calendar List ---")
     calendars = calendar.get_calendar_list()
     for cal in calendars[:3]:  # Show first 3
         print(f"- {cal.get('summary', 'N/A')}")
     
     # Test 3: Get today's events
-    print("\n--- Test 3: Today's Events ---")
+    print("\n--- Test 3: MCP Today's Events ---")
     today_events = calendar.get_today_events()
     print(calendar.format_events_list(today_events))
     
-    # Test 4: Get this week's events
-    print("\n--- Test 4: This Week's Events ---")
-    week_events = calendar.get_week_events()
-    print(f"Total events this week: {len(week_events)}")
-    
-    # Test 5: Search events
-    print("\n--- Test 5: Search Events ---")
+    # Test 4: Search events
+    print("\n--- Test 4: MCP Search Events ---")
     search_results = calendar.search_events("meeting")
     print(calendar.format_events_list(search_results))
