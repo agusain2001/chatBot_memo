@@ -1,0 +1,6 @@
+{
+  "mcp": {
+    "base_url": "https://api.example-mcp.com",
+    "scopes": ["calendar.read", "calendar.write"]
+  }
+}

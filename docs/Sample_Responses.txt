@@ -1,0 +1,4 @@
+User: Hello
+Bot: Hi — how can I help today?
+
+# Add sample queries and expected responses here.

@@ -1,0 +1,44 @@
+# Core Dependencies
+streamlit==1.31.0
+python-dotenv==1.0.0
+
+# Memory Management - Mem0 Library
+# Citation: Mem0 official documentation - https://docs.mem0.ai/
+mem0ai==0.0.9
+
+# MCP SDK for Calendar Integration
+# Citation: MCP Python SDK - https://github.com/modelcontextprotocol/python-sdk
+mcp==0.1.0
+
+# Google Calendar API
+# Citation: Google Calendar API Python Client - https://developers.google.com/calendar/api/quickstart/python
+google-api-python-client==2.111.0
+google-auth-httplib2==0.2.0
+google-auth-oauthlib==1.2.0
+
+# LLM Integration (OpenAI for chatbot intelligence)
+openai==1.12.0
+
+# Alternative: Use Anthropic Claude
+anthropic==0.18.1
+
+# NLP and Language Processing
+langchain==0.1.6
+langchain-community==0.0.20
+
+# Utility Libraries
+requests==2.31.0
+pandas==2.2.0
+numpy==1.26.3
+
+# Date and Time Handling
+python-dateutil==2.8.2
+pytz==2024.1
+
+# Testing
+pytest==7.4.4
+pytest-asyncio==0.23.3
+
+# Additional utilities
+pydantic==2.5.3
+tiktoken==0.5.2
